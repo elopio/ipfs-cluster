@@ -88,6 +88,13 @@ cluster_id() {
     jq --raw-output ".cluster.id" test-config/service.json
 }
 
+# Note: should only be called in when CLUSTER prereq is already true because
+# it depends on test-config existing to add the temporary v1State file.
+test_create_v1State() {
+    echo '{ Version: 1, PinMap { "QmeomffUNfmQy76CQGy9NdmqEnnHU9soCexBnGU3ezPHVH": {} }}' > test-config/v1State
+    test_set_prereq V1STATE
+}
+
 # Cleanup functions
 test_clean_ipfs(){
     docker kill ipfs
