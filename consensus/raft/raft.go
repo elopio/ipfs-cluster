@@ -12,6 +12,8 @@ import (
 	host "github.com/libp2p/go-libp2p-host"
 	peer "github.com/libp2p/go-libp2p-peer"
 	p2praft "github.com/libp2p/go-libp2p-raft"
+
+	"github.com/ipfs/ipfs-cluster/state/mapstate"
 )
 
 // errBadRaftState is returned when the consensus component cannot start
@@ -21,6 +23,10 @@ var errBadRaftState = errors.New("cluster peers do not match raft peers")
 // ErrWaitingForSelf is returned when we are waiting for ourselves to depart
 // the peer set, which won't happen
 var errWaitingForSelf = errors.New("waiting for ourselves to depart")
+
+// ErrOutdatedState is returned when an older versioned state format is loaded
+// from existing raft state
+var errOutdatedState = errors.New("unsupported state version")
 
 // RaftMaxSnapshots indicates how many snapshots to keep in the consensus data
 // folder.
@@ -53,7 +59,8 @@ type raftWrapper struct {
 }
 
 // newRaft launches a go-libp2p-raft consensus peer.
-func newRaftWrapper(peers []peer.ID, host host.Host, cfg *Config, fsm hraft.FSM) (*raftWrapper, error) {
+func newRaftWrapper(peers []peer.ID, host host.Host, cfg *Config, consensus p2praft.Consensus) (*raftWrapper, error) {
+	fsm := consensus.FSM()
 	// Set correct LocalID
 	cfg.RaftConfig.LocalID = hraft.ServerID(peer.IDB58Encode(host.ID()))
 
@@ -162,6 +169,26 @@ func newRaftWrapper(peers []peer.ID, host host.Host, cfg *Config, fsm hraft.FSM)
 			logger.Errorf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 			return nil, errBadRaftState
 			//return nil, errors.New("Bad cluster peers")
+		}
+
+		// Handle state with an outdated version
+		if state, err := consensus.GetCurrentState(); err != nil {
+			logger.Error("Raft state unavailable after recovery from existing state.")
+			return nil, errOutdatedState  //TODO: It seems like this should never happen.  Should we keep this error check?
+		}
+
+		if ms, ok := state.(mapstate.MapState); !ok || ms.Version != mapstate.Version {
+			// TODO: Save a backup to ensure migration.  Blocking on refactoring
+			// cluster.backupState somewhere to avoid circular deps
+			
+			logger.Error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+			logger.Error("Raft state is in a non-supported version")
+			logger.Error("A backup of this state has been saved")
+			logger.Error("to .ipfs-cluster/backups.  To format state for use")
+			logger.Error("run an ipfs-cluster-service migration on this backup")
+			logger.Error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+
+			return nil, errOutdatedState
 		}
 	}
 
