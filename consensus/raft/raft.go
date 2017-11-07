@@ -59,7 +59,7 @@ type raftWrapper struct {
 }
 
 // newRaft launches a go-libp2p-raft consensus peer.
-func newRaftWrapper(peers []peer.ID, host host.Host, cfg *Config, consensus p2praft.Consensus) (*raftWrapper, error) {
+func newRaftWrapper(peers []peer.ID, host host.Host, cfg *Config, consensus *p2praft.Consensus) (*raftWrapper, error) {
 	fsm := consensus.FSM()
 	// Set correct LocalID
 	cfg.RaftConfig.LocalID = hraft.ServerID(peer.IDB58Encode(host.ID()))
@@ -172,11 +172,12 @@ func newRaftWrapper(peers []peer.ID, host host.Host, cfg *Config, consensus p2pr
 		}
 
 		// Handle state with an outdated version
-		if state, err := consensus.GetCurrentState(); err != nil {
+		state, err := consensus.GetCurrentState()
+		if err != nil {
 			logger.Error("Raft state unavailable after recovery from existing state.")
 			return nil, errOutdatedState  //TODO: It seems like this should never happen.  Should we keep this error check?
 		}
-
+		
 		if ms, ok := state.(mapstate.MapState); !ok || ms.Version != mapstate.Version {
 			// TODO: Save a backup to ensure migration.  Blocking on refactoring
 			// cluster.backupState somewhere to avoid circular deps
