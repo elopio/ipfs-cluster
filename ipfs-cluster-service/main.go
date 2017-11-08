@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -11,14 +10,11 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"context"
-
 	//	_ "net/http/pprof"
 
 	logging "github.com/ipfs/go-log"
 	ma "github.com/multiformats/go-multiaddr"
 	"github.com/urfave/cli"
-	hraft "github.com/hashicorp/raft"
 	"github.com/libp2p/go-libp2p-peer"
 
 	ipfscluster "github.com/ipfs/ipfs-cluster"
@@ -275,21 +271,17 @@ removal, migrate using this command, and restart every peer.
 				err = newState.Restore(r)
 				checkErr("migrating state to alternate version", err)
 				//Record peers of cluster
-				var serverAddrs []hraft.ServerAddr
+				var peers []peer.ID
 				for _, m := range clusterCfg.Peers {
 					pid, _, err := ipfscluster.MultiaddrSplit(m)
 					checkErr("Parsing peer addrs in cluster-config", err)
-					peers.append(hraft.ServerAddress(peer.IDB58Encode(pid)))
+					peers = append(peers, pid)
 				}
-				serverAddrs.append(hraft.ServerAddress(peer.IDB58Encode(clusterCfg.ID)))
-				//Write snapshot of the migrated state
-				err = raft.Reset(newState, consensusCfg, raftDataPath, serverAddrs)
+				peers = append(peers, clusterCfg.ID)
+				//Reset raft state to a snapshot of the new migrated state
+				err = raft.Reset(newState, consensusCfg, raftDataPath, peers)
 				checkErr("migrating raft state to new format", err)
 				return nil
-//				dummyHost, err := makeDummyHost(clusterCfg)
-//				checkErr("creating dummy host for snapshot store", err)
-//				dummyTransport, err := libp2praft.NewLibp2pTransport(dummyHost, consensusCfg.NetworkTimeout)
-//				checkErr("creating dummy transport for snapshot store", err)
 			},
 		},
 	}
@@ -506,39 +498,3 @@ func makeConfigs() (*config.Manager, *ipfscluster.Config, *rest.Config, *ipfshtt
 	cfg.RegisterComponent(config.Informer, numpinInfCfg)
 	return cfg, clusterCfg, apiCfg, ipfshttpCfg, consensusCfg, monCfg, diskInfCfg, numpinInfCfg
 }
-/*
-func makeDummyHost(cfg *ipfscluster.Config) (host.Host, error) {
-	ps := peerstore.NewPeerstore()
-	for _, m := range cfg.Peers {
-		pid, decapAddr, err := ipfscluster.MultiaddrSplit(m)
-		if err != nil {
-			return nil, err
-		}
-		ps.AddAddr(pid, decapAddr, peerstore.PermanentAddrTTL)
-	}
-	ps.AddAddr(cfg.ID, cfg.ListenAddr, peerstore.PermanentAddrTTL)
-	
-	network, err := swarm.NewNetwork(
-		context.Background(),
-		[]ma.Multiaddr{cfg.ListenAddr},
-		cfg.ID,
-		ps,
-		nil,
-	)
-	if err != nil {
-		return nil, err
-	}
-		
-	bhost := basichost.New(network)
-	return bhost, nil
-}*/
-/*	
-func encodeState(state mapstate.MapState) ([]byte, error) {
-        buf := new(bytes.Buffer)
-        enc := msgpack.Multicodec(msgpack.DefaultMsgpackHandle()).Encoder(buf)
-        if err := enc.Encode(state); err != nil {
-                return nil, err
-        }
-        return buf.Bytes(), nil
-}
-*/

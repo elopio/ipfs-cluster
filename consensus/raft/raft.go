@@ -462,7 +462,7 @@ func (rw *raftWrapper) Peers() ([]string, error) {
 }
 
 // only call when Raft is shutdown
-func Reset(newState *mapstate.MapState, cfg *Config, raftDataPath string, serverAddrs []hraft.ServerAddress) error{
+func Reset(newState *mapstate.MapState, cfg *Config, raftDataPath string, peers []peer.ID) error{
 	err := cleanupRaft(raftDataPath)
 	if err != nil {
 		return err
@@ -472,13 +472,14 @@ func Reset(newState *mapstate.MapState, cfg *Config, raftDataPath string, server
 		return err
 	}
 
-	_, dummyTransport := hraft.NewInmemTransport(serverAddrs[len(serverAddrs)-1])
+	serverAddr := hraft.ServerAddress(peer.IDB58Encode(peers[len(peers) -1]))
+	_, dummyTransport := hraft.NewInmemTransport(serverAddr)
 	var raftSnapVersion hraft.SnapshotVersion
 	raftSnapVersion = 1         // As of v1.0.0 this is always 1                                     
 	raftIndex       := uint64(1) // We reset history to the beginning                                                    
 	raftTerm        := uint64(1) // We reset history to the beginning
 	configIndex     := uint64(1) // We reset history to the beginning
-	srvCfg := MakeServerConf(serverAddrs)
+	srvCfg := MakeServerConf(peers)
 	sink, err := snapshotStore.Create(raftSnapVersion, raftIndex, raftTerm, srvCfg, configIndex, dummyTransport)
 	if err != nil {
 		return err
