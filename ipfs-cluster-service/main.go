@@ -18,13 +18,7 @@ import (
 	logging "github.com/ipfs/go-log"
 	ma "github.com/multiformats/go-multiaddr"
 	"github.com/urfave/cli"
-	libp2praft "github.com/libp2p/go-libp2p-raft"
-	host "github.com/libp2p/go-libp2p-host"
-	basichost "github.com/libp2p/go-libp2p/p2p/host/basic"
-	peerstore "github.com/libp2p/go-libp2p-peerstore"
-	swarm "github.com/libp2p/go-libp2p-swarm"
 	hraft "github.com/hashicorp/raft"
-	msgpack "github.com/multiformats/go-multicodec/msgpack"
 	"github.com/libp2p/go-libp2p-peer"
 
 	ipfscluster "github.com/ipfs/ipfs-cluster"
@@ -281,15 +275,15 @@ removal, migrate using this command, and restart every peer.
 				err = newState.Restore(r)
 				checkErr("migrating state to alternate version", err)
 				//Record peers of cluster
-				var peers []peer.ID
+				var serverAddrs []hraft.ServerAddr
 				for _, m := range clusterCfg.Peers {
 					pid, _, err := ipfscluster.MultiaddrSplit(m)
 					checkErr("Parsing peer addrs in cluster-config", err)
-					peers.append(pid)
+					peers.append(hraft.ServerAddress(peer.IDB58Encode(pid)))
 				}
-				peers.append(clusterCfg.ID)
+				serverAddrs.append(hraft.ServerAddress(peer.IDB58Encode(clusterCfg.ID)))
 				//Write snapshot of the migrated state
-				err = raft.Reset(newState, consensusCfg, raftDataPath, peers)
+				err = raft.Reset(newState, consensusCfg, raftDataPath, serverAddrs)
 				checkErr("migrating raft state to new format", err)
 				return nil
 //				dummyHost, err := makeDummyHost(clusterCfg)

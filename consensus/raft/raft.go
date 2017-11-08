@@ -1,6 +1,7 @@
 package raft
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -12,6 +13,7 @@ import (
 	host "github.com/libp2p/go-libp2p-host"
 	peer "github.com/libp2p/go-libp2p-peer"
 	p2praft "github.com/libp2p/go-libp2p-raft"
+	msgpack "github.com/multiformats/go-multicodec/msgpack"
 
 	"github.com/ipfs/ipfs-cluster/state/mapstate"
 )
@@ -460,8 +462,8 @@ func (rw *raftWrapper) Peers() ([]string, error) {
 }
 
 // only call when Raft is shutdown
-func Reset(newState mapstate.MapState, cfg *Config, raftDataPath string, peers []peer.ID) error{
-	err := cleanupRaft(raftDataDir)
+func Reset(newState *mapstate.MapState, cfg *Config, raftDataPath string, serverAddrs []hraft.ServerAddrs) error{
+	err := cleanupRaft(raftDataPath)
 	if err != nil {
 		return err
 	}
@@ -470,7 +472,7 @@ func Reset(newState mapstate.MapState, cfg *Config, raftDataPath string, peers [
 		return err
 	}
 
-	dummyTransport := hraft.NewInmemTransport(peers[len(peers)-1])
+	_, dummyTransport := hraft.NewInmemTransport(serverAddrs[len(serverAddrs)-1])
 	var raftSnapVersion hraft.SnapshotVersion
 	raftSnapVersion := 1         // As of v1.0.0 this is always 1                                     
 	raftIndex       := uint64(1) // We reset history to the beginning                                                    
