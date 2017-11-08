@@ -462,7 +462,7 @@ func (rw *raftWrapper) Peers() ([]string, error) {
 }
 
 // only call when Raft is shutdown
-func Reset(newState *mapstate.MapState, cfg *Config, raftDataPath string, serverAddrs []hraft.ServerAddr) error{
+func Reset(newState *mapstate.MapState, cfg *Config, raftDataPath string, serverAddrs []hraft.ServerAddress) error{
 	err := cleanupRaft(raftDataPath)
 	if err != nil {
 		return err
