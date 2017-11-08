@@ -460,6 +460,60 @@ func (rw *raftWrapper) Peers() ([]string, error) {
 }
 
 // only call when Raft is shutdown
+func Reset(newState mapstate.MapState, cfg *Config, raftDataPath string, peers []peer.ID) error{
+	err := cleanupRaft(raftDataDir)
+	if err != nil {
+		return err
+	}
+	snapshotStore, err := hraft.NewFileSnapshotStoreWithLogger(raftDataPath, RaftMaxSnapshots, nil)
+	if err != nil {
+		return err
+	}
+
+	dummyTransport := hraft.NewInmemTransport(peers[len(peers)-1])
+	var raftSnapVersion hraft.SnapshotVersion
+	raftSnapVersion := 1         // As of v1.0.0 this is always 1                                     
+	raftIndex       := uint64(1) // We reset history to the beginning                                                    
+	raftTerm        := uint64(1) // We reset history to the beginning
+	configIndex     := uint64(1) // We reset history to the beginning
+	srvCfg := MakeServerConf(peers)
+	sink, err := snapshotStore.Create(raftSnapVersion, raftIndex, raftTerm, srvCfg, configIndex, dummyTransport)
+	if err != nil {
+		return err
+	}
+	newStateBytes, err := encodeState(*newState)
+	_, err = sink.Write(newStateBytes)
+	if err != nil {
+		return err
+	}
+	err = sink.Close()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func cleanupRaft(raftDataDir string) error {
+        raftDB := filepath.Join(raftDataDir, "raft.db")
+        snapShotDir := filepath.Join(raftDataDir, "snapshots")
+        err := os.Remove(raftDB)
+        if err != nil {
+		return err
+        }
+        err = os.RemoveAll(snapShotDir)
+        return err
+}
+
+func encodeState(state mapstate.MapState) ([]byte, error) {
+        buf := new(bytes.Buffer)
+        enc := msgpack.Multicodec(msgpack.DefaultMsgpackHandle()).Encoder(buf)
+        if err := enc.Encode(state); err != nil {
+                return nil, err
+        }
+        return buf.Bytes(), nil
+}
+
+// only call when Raft is shutdown
 func (rw *raftWrapper) Clean() error {
 	return os.RemoveAll(rw.dataFolder)
 }

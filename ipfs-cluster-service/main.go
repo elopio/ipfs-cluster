@@ -25,6 +25,7 @@ import (
 	swarm "github.com/libp2p/go-libp2p-swarm"
 	hraft "github.com/hashicorp/raft"
 	msgpack "github.com/multiformats/go-multicodec/msgpack"
+	"github.com/libp2p/go-libp2p-peer"
 
 	ipfscluster "github.com/ipfs/ipfs-cluster"
 	"github.com/ipfs/ipfs-cluster/allocator/ascendalloc"
@@ -279,35 +280,22 @@ removal, migrate using this command, and restart every peer.
 				newState := mapstate.NewMapState()
 				err = newState.Restore(r)
 				checkErr("migrating state to alternate version", err)
-				// Encode state to save as a snapshot
-				newStateBytes, err := encodeState(*newState)
-				checkErr("encoding new state", err)
-						
-				//Remove raft state
-				err = cleanupRaft(raftDataPath)
-				checkErr("cleaningup Raft", err)
-				
+				//Record peers of cluster
+				var peers []peer.ID
+				for _, m := range clusterCfg.Peers {
+					pid, _, err := ipfscluster.MultiaddrSplit(m)
+					checkErr("Parsing peer addrs in cluster-config", err)
+					peers.append(pid)
+				}
+				peers.append(clusterCfg.ID)
 				//Write snapshot of the migrated state
-				snapshotStore, err := hraft.NewFileSnapshotStoreWithLogger(raftDataPath, 5, nil)
-				checkErr("creating snapshot store", err)
-				dummyHost, err := makeDummyHost(clusterCfg)
-				checkErr("creating dummy host for snapshot store", err)
-				dummyTransport, err := libp2praft.NewLibp2pTransport(dummyHost, consensusCfg.NetworkTimeout)
-				checkErr("creating dummy transport for snapshot store", err)
-				var raftSnapVersion hraft.SnapshotVersion
-				raftSnapVersion = 1				// As of v1.0.0 this is always 1
-				raftIndex       := uint64(1) // We reset history to the beginning
-				raftTerm        := uint64(1) // We reset history to the beginning
-				configIndex     := uint64(1) // We reset history to the beginning
-				srvCfg := raft.MakeServerConf(dummyHost.Peerstore().Peers())
-				sink, err := snapshotStore.Create(raftSnapVersion, raftIndex, raftTerm, srvCfg, configIndex, dummyTransport)  
-				checkErr("Creating a temporary snapshot store", err)
-				_, err = sink.Write(newStateBytes)
-				checkErr("Writing snapshot to sink", err)
-				err = sink.Close()
-				checkErr("Closing sink", err)
-
+				err = raft.Reset(newState, consensusCfg, raftDataPath, peers)
+				checkErr("migrating raft state to new format", err)
 				return nil
+//				dummyHost, err := makeDummyHost(clusterCfg)
+//				checkErr("creating dummy host for snapshot store", err)
+//				dummyTransport, err := libp2praft.NewLibp2pTransport(dummyHost, consensusCfg.NetworkTimeout)
+//				checkErr("creating dummy transport for snapshot store", err)
 			},
 		},
 	}
@@ -524,7 +512,7 @@ func makeConfigs() (*config.Manager, *ipfscluster.Config, *rest.Config, *ipfshtt
 	cfg.RegisterComponent(config.Informer, numpinInfCfg)
 	return cfg, clusterCfg, apiCfg, ipfshttpCfg, consensusCfg, monCfg, diskInfCfg, numpinInfCfg
 }
-
+/*
 func makeDummyHost(cfg *ipfscluster.Config) (host.Host, error) {
 	ps := peerstore.NewPeerstore()
 	for _, m := range cfg.Peers {
@@ -549,8 +537,8 @@ func makeDummyHost(cfg *ipfscluster.Config) (host.Host, error) {
 		
 	bhost := basichost.New(network)
 	return bhost, nil
-}
-	
+}*/
+/*	
 func encodeState(state mapstate.MapState) ([]byte, error) {
         buf := new(bytes.Buffer)
         enc := msgpack.Multicodec(msgpack.DefaultMsgpackHandle()).Encoder(buf)
@@ -559,3 +547,4 @@ func encodeState(state mapstate.MapState) ([]byte, error) {
         }
         return buf.Bytes(), nil
 }
+*/
