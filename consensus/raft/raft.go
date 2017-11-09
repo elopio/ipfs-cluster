@@ -3,7 +3,9 @@ package raft
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -481,35 +483,35 @@ func (nf byRaftSnapFilename) Less(i, j int) bool {
 
 //ExistingStateReader does a best effort search for existing raft state files
 //and returns the bytes of the latest raft snapshot
-func ExistingStateReader(cfg *Config) (io.Reader, err){
+func ExistingStateReader(cfg *Config) (io.Reader, error){
 	snapPath := "snapshots"
 	stateFilePath := "state.bin"
 
 	if cfg.BaseDir == "" || cfg.DataFolder == "" {
 		return nil, errors.New("Data location not specified in cfg")
 	}
-	snapShotDir := filePath.Join(cfg.BaseDir, cfg.DataFolder, snapPath)
+	snapShotDir := filepath.Join(cfg.BaseDir, cfg.DataFolder, snapPath)
 	
 	// take latest chronological file in the snapshot directory
 	snapFiles, err := ioutil.ReadDir(snapShotDir)
 	if len(snapFiles) == 0 {
 		return nil, errors.New("No snapshots saved")
 	}
-	sort.Sort(byRaftSnapName(snapFiles))
-	splitName := strings.Split(files[0], "-")
+	sort.Sort(byRaftSnapFilename(snapFiles))
+	splitName := strings.Split(snapFiles[0].Name(), "-")
 	if len(splitName) != 3 {
 		return nil, errors.New("No snapshots saved")
 	}
 
 	// look for state file in latest snapshot
-	snapShotStateFile := filePath.Join(snapShotBaseDir, files[0], stateFilePath)
-	err, rawBytes = ioutil.ReadFile(snapShotStateFile)
+	snapShotStateFile := filepath.Join(snapShotDir, snapFiles[0].Name(), stateFilePath)
+	rawBytes, err := ioutil.ReadFile(snapShotStateFile)
 	if err != nil {
 		return nil, err
 	}
 
 	var state interface {}
-	err := decodeState(rawBytes, &state)
+	err = decodeState(rawBytes, &state)
 	if err != nil {
 		return nil, err
 	}
@@ -523,7 +525,7 @@ func ExistingStateReader(cfg *Config) (io.Reader, err){
 
 //Reset saves a raft snapshot containing newState to be loaded on restart.
 //Only call when Raft is shutdown.
-func Reset(newState *state.State, cfg *Config, raftDataPath string, peers []peer.ID) error{
+func Reset(newState state.State, cfg *Config, raftDataPath string, peers []peer.ID) error{
 	err := cleanupRaft(raftDataPath)
 	if err != nil {
 		return err
@@ -545,7 +547,7 @@ func Reset(newState *state.State, cfg *Config, raftDataPath string, peers []peer
 	if err != nil {
 		return err
 	}
-	newStateBytes, err := encodeState(*newState)
+	newStateBytes, err := encodeState(newState)
 	_, err = sink.Write(newStateBytes)
 	if err != nil {
 		return err

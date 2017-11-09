@@ -279,7 +279,7 @@ removal, migrate using this command, and restart every peer.
 				}
 				peers = append(peers, clusterCfg.ID)
 				//Reset raft state to a snapshot of the new migrated state
-				err = raft.Reset(newState, consensusCfg, raftDataPath, peers)
+				err = raft.Reset(*newState, consensusCfg, raftDataPath, peers)
 				checkErr("migrating raft state to new format", err)
 				return nil
 			},
@@ -352,7 +352,7 @@ func daemon(c *cli.Context) error {
                         logger.Error("Raft state is in a non-supported version")
 			err = state.Restore(r)
 			if err == nil {
-				err = ipfscluster.BackupState(clusterCfg.BaseDir, state)
+				err = ipfscluster.BackupState(clusterCfg.BaseDir, *state)
 			}
 			if err == nil {
 				logger.Error("An updated backup of this state has been saved")

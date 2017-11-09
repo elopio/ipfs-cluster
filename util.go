@@ -2,8 +2,10 @@ package ipfscluster
 
 import (
 	"errors"
-	"filepath"
 	"fmt"
+	"os"
+	"path/filepath"
+	"time"
 
 	"github.com/ipfs/ipfs-cluster/api"
 	"github.com/ipfs/ipfs-cluster/state"
@@ -160,10 +162,11 @@ func containsPeer(list []peer.ID, peer peer.ID) bool {
 	return false
 }
 
-func BackupState(baseDir string, state state.State) {
+func BackupState(baseDir string, state state.State) error {
 	if baseDir == "" {
-		logger.Warning("ClusterConfig BaseDir unset. Skipping backup")
-		return
+		msg := "ClusterConfig BaseDir unset. Skipping backup"
+		logger.Warning(msg)
+		return errors.New(msg)
 	}
 
 	folder := filepath.Join(baseDir, "backups")
@@ -171,18 +174,19 @@ func BackupState(baseDir string, state state.State) {
 	if err != nil {
 		logger.Error(err)
 		logger.Error("skipping backup")
-		return
+		return errors.New("skipping backup")
 	}
 	fname := time.Now().UTC().Format("20060102_15:04:05")
 	f, err := os.Create(filepath.Join(folder, fname))
 	if err != nil {
 		logger.Error(err)
-		return
+		return err
 	}
 	defer f.Close()
 	err = state.Snapshot(f)
 	if err != nil {
 		logger.Error(err)
-		return
+		return err
 	}
+	return nil
 }

@@ -34,7 +34,7 @@ func NewMapState() *MapState {
 }
 
 // Add adds a Pin to the internal map.
-func (st *MapState) Add(c api.Pin) error {
+func (st MapState) Add(c api.Pin) error {
 	st.pinMux.Lock()
 	defer st.pinMux.Unlock()
 	st.PinMap[c.Cid.String()] = c.ToSerial()
@@ -42,7 +42,7 @@ func (st *MapState) Add(c api.Pin) error {
 }
 
 // Rm removes a Cid from the internal map.
-func (st *MapState) Rm(c *cid.Cid) error {
+func (st MapState) Rm(c *cid.Cid) error {
 	st.pinMux.Lock()
 	defer st.pinMux.Unlock()
 	delete(st.PinMap, c.String())
@@ -50,7 +50,7 @@ func (st *MapState) Rm(c *cid.Cid) error {
 }
 
 // Get returns Pin information for a CID.
-func (st *MapState) Get(c *cid.Cid) api.Pin {
+func (st MapState) Get(c *cid.Cid) api.Pin {
 	st.pinMux.RLock()
 	defer st.pinMux.RUnlock()
 	pins, ok := st.PinMap[c.String()]
@@ -61,7 +61,7 @@ func (st *MapState) Get(c *cid.Cid) api.Pin {
 }
 
 // Has returns true if the Cid belongs to the State.
-func (st *MapState) Has(c *cid.Cid) bool {
+func (st MapState) Has(c *cid.Cid) bool {
 	st.pinMux.RLock()
 	defer st.pinMux.RUnlock()
 	_, ok := st.PinMap[c.String()]
@@ -69,7 +69,7 @@ func (st *MapState) Has(c *cid.Cid) bool {
 }
 
 // List provides the list of tracked Pins.
-func (st *MapState) List() []api.Pin {
+func (st MapState) List() []api.Pin {
 	st.pinMux.RLock()
 	defer st.pinMux.RUnlock()
 	cids := make([]api.Pin, 0, len(st.PinMap))
@@ -84,7 +84,7 @@ func (st *MapState) List() []api.Pin {
 
 // Snapshot dumps the MapState to the given writer, in pretty json
 // format.
-func (st *MapState) Snapshot(w io.Writer) error {
+func (st MapState) Snapshot(w io.Writer) error {
 	st.pinMux.RLock()
 	defer st.pinMux.RUnlock()
 	enc := json.NewEncoder(w)
@@ -94,7 +94,7 @@ func (st *MapState) Snapshot(w io.Writer) error {
 
 // Restore takes a reader and restores a snapshot. It should migrate
 // the format if it is not compatible with the current version.
-func (st *MapState) Restore(r io.Reader) error {
+func (st MapState) Restore(r io.Reader) error {
 	snap, err := ioutil.ReadAll(r)
 	if err != nil {
 		return err
@@ -115,7 +115,7 @@ func (st *MapState) Restore(r io.Reader) error {
 
 // VersionOk takes a reader, checks if the state is well formatted
 // with a correct version and returns a boolean flag
-func (st *MapState) VersionOk(r io.Reader) bool {
+func (st MapState) VersionOk(r io.Reader) bool {
 	snap, err := ioutil.ReadAll(r)
 	if err != nil {
 		return false
