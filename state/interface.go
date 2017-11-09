@@ -27,4 +27,6 @@ type State interface {
 	Snapshot(w io.Writer) error
 	// Restore restores a snapshot from a reader
 	Restore(r io.Reader) error
+	// Check whether version of state in reader has correct version
+	VersionOk(r io.Reader) bool
 }

@@ -343,6 +343,27 @@ func daemon(c *cli.Context) error {
 	checkErr("creating IPFS Connector component", err)
 
 	state := mapstate.NewMapState()
+
+	r, err := raft.ExistingStateReader(consensusCfg) // Note direct dependence on raft here
+	if err == nil { //err != nil we assume no snapshots and skip check
+		valid := state.VersionOk(r)
+		if !valid {
+			logger.Error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+                        logger.Error("Raft state is in a non-supported version")
+			err = state.Restore(r)
+			if err == nil {
+				err = ipfscluster.BackupState(clusterCfg.BaseDir, state)
+			}
+			if err == nil {
+				logger.Error("An updated backup of this state has been saved")
+				logger.Error("to .ipfs-cluster/backups.  To setup state for use")
+				logger.Error("run ipfs-cluster-service migration on the latest backup")
+			}
+                        logger.Error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+
+			return errors.New("unsupported state version")
+		}
+	}
 	tracker := maptracker.NewMapPinTracker(clusterCfg.ID)
 	mon, err := basic.NewMonitor(monCfg)
 	checkErr("creating Monitor component", err)

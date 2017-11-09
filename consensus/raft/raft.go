@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io/ioutil"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	hraft "github.com/hashicorp/raft"
@@ -15,7 +18,7 @@ import (
 	p2praft "github.com/libp2p/go-libp2p-raft"
 	msgpack "github.com/multiformats/go-multicodec/msgpack"
 
-	"github.com/ipfs/ipfs-cluster/state/mapstate"
+	"github.com/ipfs/ipfs-cluster/state"
 )
 
 // errBadRaftState is returned when the consensus component cannot start
@@ -58,6 +61,8 @@ type raftWrapper struct {
 	logStore      hraft.LogStore
 	stableStore   hraft.StableStore
 	boltdb        *raftboltdb.BoltStore
+
+	HadState      bool
 }
 
 // newRaft launches a go-libp2p-raft consensus peer.
@@ -142,6 +147,7 @@ func newRaftWrapper(peers []peer.ID, host host.Host, cfg *Config, consensus *p2p
 		logStore:      log,
 		stableStore:   stable,
 		boltdb:        store,
+		HadState:      hasState,
 	}
 
 	// Handle existing, different configuration
@@ -171,27 +177,6 @@ func newRaftWrapper(peers []peer.ID, host host.Host, cfg *Config, consensus *p2p
 			logger.Errorf("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 			return nil, errBadRaftState
 			//return nil, errors.New("Bad cluster peers")
-		}
-
-		// Handle state with an outdated version
-		state, err := consensus.GetCurrentState()
-		if err != nil {
-			logger.Error("Raft state unavailable after recovery from existing state.")
-			return nil, errOutdatedState  //TODO: It seems like this should never happen.  Should we keep this error check?
-		}
-		
-		if ms, ok := state.(mapstate.MapState); !ok || ms.Version != mapstate.Version {
-			// TODO: Save a backup to ensure migration.  Blocking on refactoring
-			// cluster.backupState somewhere to avoid circular deps
-			
-			logger.Error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-			logger.Error("Raft state is in a non-supported version")
-			logger.Error("A backup of this state has been saved")
-			logger.Error("to .ipfs-cluster/backups.  To format state for use")
-			logger.Error("run an ipfs-cluster-service migration on this backup")
-			logger.Error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-
-			return nil, errOutdatedState
 		}
 	}
 
@@ -461,8 +446,84 @@ func (rw *raftWrapper) Peers() ([]string, error) {
 	return ids, nil
 }
 
-// only call when Raft is shutdown
-func Reset(newState *mapstate.MapState, cfg *Config, raftDataPath string, peers []peer.ID) error{
+// Used to sort raftsnapshot filenames to find most recent
+type byRaftSnapFilename []os.FileInfo
+
+// byRaftSnapFilename Implements the sort interface 
+func (nf byRaftSnapFilename) Len() int {return len(nf)}
+func (nf byRaftSnapFilename) Swap(i, j int) {nf[i], nf[j] = nf[j], nf[i]}
+func (nf byRaftSnapFilename) Less(i, j int) bool {
+	pathA := nf[i].Name()
+	pathB := nf[j].Name()
+
+	// Take the timestamp from the file name to determine order
+	// For now assuming 3 substrings means snap file
+	splitA := strings.Split(pathA, "-")
+	splitB := strings.Split(pathB, "-")
+
+	if len(splitA) == 3 && len(splitB) != 3 {
+                // Raftsnapshots come first
+		return true
+	}
+
+	if len(splitB) == 3 && len(splitA) != 3 {
+		return false
+	}
+	
+	if len(splitB) != 3 && len(splitA) != 3 {
+		return pathA < pathB
+	}
+
+	// Both are raft snapshot files 
+	// The most recent snapshot belongs at the front of the slice
+	return splitA[2] > splitB[2]
+}
+
+//ExistingStateReader does a best effort search for existing raft state files
+//and returns the bytes of the latest raft snapshot
+func ExistingStateReader(cfg *Config) (io.Reader, err){
+	snapPath := "snapshots"
+	stateFilePath := "state.bin"
+
+	if cfg.BaseDir == "" || cfg.DataFolder == "" {
+		return nil, errors.New("Data location not specified in cfg")
+	}
+	snapShotDir := filePath.Join(cfg.BaseDir, cfg.DataFolder, snapPath)
+	
+	// take latest chronological file in the snapshot directory
+	snapFiles, err := ioutil.ReadDir(snapShotDir)
+	if len(snapFiles) == 0 {
+		return nil, errors.New("No snapshots saved")
+	}
+	sort.Sort(byRaftSnapName(snapFiles))
+	splitName := strings.Split(files[0], "-")
+	if len(splitName) != 3 {
+		return nil, errors.New("No snapshots saved")
+	}
+
+	// look for state file in latest snapshot
+	snapShotStateFile := filePath.Join(snapShotBaseDir, files[0], stateFilePath)
+	err, rawBytes = ioutil.ReadFile(snapShotStateFile)
+	if err != nil {
+		return nil, err
+	}
+
+	var state interface {}
+	err := decodeState(rawBytes, &state)
+	if err != nil {
+		return nil, err
+	}
+	stateBytes, err := json.Marshal(state)
+	if err != nil {
+		return nil, err
+	}
+	r := bytes.NewReader(stateBytes)
+	return r, nil
+}
+
+//Reset saves a raft snapshot containing newState to be loaded on restart.
+//Only call when Raft is shutdown.
+func Reset(newState *state.State, cfg *Config, raftDataPath string, peers []peer.ID) error{
 	err := cleanupRaft(raftDataPath)
 	if err != nil {
 		return err
@@ -507,7 +568,7 @@ func cleanupRaft(raftDataDir string) error {
         return err
 }
 
-func encodeState(state mapstate.MapState) ([]byte, error) {
+func encodeState(state interface{}) ([]byte, error) {
         buf := new(bytes.Buffer)
         enc := msgpack.Multicodec(msgpack.DefaultMsgpackHandle()).Encoder(buf)
         if err := enc.Encode(state); err != nil {
@@ -515,6 +576,16 @@ func encodeState(state mapstate.MapState) ([]byte, error) {
         }
         return buf.Bytes(), nil
 }
+
+func decodeState(bs []byte, state *interface{}) error {
+        buf := bytes.NewBuffer(bs)
+        dec := msgpack.Multicodec(msgpack.DefaultMsgpackHandle()).Decoder(buf)
+        if err := dec.Decode(state); err != nil {
+                return err
+        }
+        return nil
+}
+
 
 // only call when Raft is shutdown
 func (rw *raftWrapper) Clean() error {

@@ -462,7 +462,7 @@ func (c *Cluster) Shutdown() error {
 	if c.readyB {
 		// peers are saved usually on addPeer/rmPeer
 		// c.peerManager.savePeers()
-		c.backupState()
+		BackupState(c.config.BaseDir, c.state)
 	}
 
 	// We left the cluster or were removed. Destroy the Raft state.
@@ -1213,33 +1213,5 @@ func (c *Cluster) allocate(hash *cid.Cid, repl int, blacklist []peer.ID) ([]peer
 
 		// the new allocations = the valid ones we had + the needed ones
 		return append(validAllocations, candidateAllocs[0:needed]...), nil
-	}
-}
-
-func (c *Cluster) backupState() {
-	if c.config.BaseDir == "" {
-		logger.Warning("ClusterConfig BaseDir unset. Skipping backup")
-		return
-	}
-
-	folder := filepath.Join(c.config.BaseDir, "backups")
-	err := os.MkdirAll(folder, 0700)
-	if err != nil {
-		logger.Error(err)
-		logger.Error("skipping backup")
-		return
-	}
-	fname := time.Now().UTC().Format("20060102_15:04:05")
-	f, err := os.Create(filepath.Join(folder, fname))
-	if err != nil {
-		logger.Error(err)
-		return
-	}
-	defer f.Close()
-
-	err = c.state.Snapshot(f)
-	if err != nil {
-		logger.Error(err)
-		return
 	}
 }

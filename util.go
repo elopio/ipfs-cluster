@@ -2,9 +2,11 @@ package ipfscluster
 
 import (
 	"errors"
+	"filepath"
 	"fmt"
 
 	"github.com/ipfs/ipfs-cluster/api"
+	"github.com/ipfs/ipfs-cluster/state"
 
 	host "github.com/libp2p/go-libp2p-host"
 	peer "github.com/libp2p/go-libp2p-peer"
@@ -35,7 +37,7 @@ func copyPinInfoSerialToIfaces(in []api.PinInfoSerial) []interface{} {
 	}
 	return ifaces
 }
-
+ 
 func copyPinInfoSerialSliceToIfaces(in [][]api.PinInfoSerial) []interface{} {
 	ifaces := make([]interface{}, len(in), len(in))
 	for i := range in {
@@ -156,4 +158,31 @@ func containsPeer(list []peer.ID, peer peer.ID) bool {
 		}
 	}
 	return false
+}
+
+func BackupState(baseDir string, state state.State) {
+	if baseDir == "" {
+		logger.Warning("ClusterConfig BaseDir unset. Skipping backup")
+		return
+	}
+
+	folder := filepath.Join(baseDir, "backups")
+	err := os.MkdirAll(folder, 0700)
+	if err != nil {
+		logger.Error(err)
+		logger.Error("skipping backup")
+		return
+	}
+	fname := time.Now().UTC().Format("20060102_15:04:05")
+	f, err := os.Create(filepath.Join(folder, fname))
+	if err != nil {
+		logger.Error(err)
+		return
+	}
+	defer f.Close()
+	err = state.Snapshot(f)
+	if err != nil {
+		logger.Error(err)
+		return
+	}
 }

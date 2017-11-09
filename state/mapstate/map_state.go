@@ -111,3 +111,19 @@ func (st *MapState) Restore(r io.Reader) error {
 	}
 	return st.migrateFrom(vonly.Version, snap)
 }
+
+
+// VersionOk takes a reader, checks if the state is well formatted
+// with a correct version and returns a boolean flag
+func (st *MapState) VersionOk(r io.Reader) bool {
+	snap, err := ioutil.ReadAll(r)
+	if err != nil {
+		return false
+	}
+	var vonly struct{ Version int }
+        err = json.Unmarshal(snap, &vonly)
+        if err != nil {
+                return false
+        }
+	return vonly.Version == Version
+}
