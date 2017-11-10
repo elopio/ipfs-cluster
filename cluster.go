@@ -460,7 +460,7 @@ func (c *Cluster) Shutdown() error {
 	if c.readyB {
 		// peers are saved usually on addPeer/rmPeer
 		// c.peerManager.savePeers()
-		BackupState(c.config.BaseDir, c.state)
+		BackupState(c.config, c.state)
 	}
 
 	// We left the cluster or were removed. Destroy the Raft state.

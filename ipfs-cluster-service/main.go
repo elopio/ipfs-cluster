@@ -234,57 +234,29 @@ configuration.
 			Action: daemon,
 		},
 		{
-			Name:   "migration",
-			Usage:  "migrate the IPFS Cluster state between versions",
-			Description: `
+			Name:        "state",
+			Usage:       "Manage ipfs-cluster-state",
+			Subcommands: []cli.Command {
+				{
+					Name:   "upgrade",
+					Usage:  "upgrade the IPFS Cluster state to the current version",
+					Description: `
 
-This command migrates the internal state of the ipfs-cluster node to the state 
+This command replaces the internal state of the ipfs-cluster node with the state 
 specified in a backup file. The state format is migrated from the version 
 of the backup file to the version supported by the current cluster version. 
-To succesfully run a migration of an entire cluster, shut down each peer without
-removal, migrate using this command, and restart every peer.
+To succesfully run an upgrade of an entire cluster, shut down each peer without
+removal, upgrade state using this command, and restart every peer.
 `,
-			ArgsUsage: "<BACKUP-FILE-PATH> [RAFT-DATA-DIR]",
-			Action: func(c *cli.Context) error {
-				if c.NArg() < 1 || c.NArg() > 2 {
-					return fmt.Errorf("Usage: <BACKUP-FILE-PATH> [RAFT-DATA-DIR]")
-					
-				}
-				//Load configs
-				cfg, clusterCfg, _, _, consensusCfg, _, _, _ := makeConfigs()
-				err := cfg.LoadJSONFromFile(configPath)
-				checkErr("loading configuration", err)
-				backupFilePath := c.Args().First()
-				var raftDataPath string
-				if c.NArg() == 1 {
-					raftDataPath = consensusCfg.DataFolder
-				} else {
-					raftDataPath = c.Args().Get(1)
-				}
-				
-				//Migrate backup to new state
-				backup, err := os.Open(backupFilePath)
-				checkErr("opening backup file", err)
-				defer backup.Close()
-				r := bufio.NewReader(backup)
-				newState := mapstate.NewMapState()
-				err = newState.Restore(r)
-				checkErr("migrating state to alternate version", err)
-				//Record peers of cluster
-				var peers []peer.ID
-				for _, m := range clusterCfg.Peers {
-					pid, _, err := ipfscluster.MultiaddrSplit(m)
-					checkErr("Parsing peer addrs in cluster-config", err)
-					peers = append(peers, pid)
-				}
-				peers = append(peers, clusterCfg.ID)
-				//Reset raft state to a snapshot of the new migrated state
-				err = raft.Reset(*newState, consensusCfg, raftDataPath, peers)
-				checkErr("migrating raft state to new format", err)
-				return nil
+					ArgsUsage: "backup-file-path [raft-data-dir]",
+					Action: func(c *cli.Context) error {
+						err := upgrade(c)
+						checkErr("upgrading state", err)
+						return nil
+					},
+				},
 			},
-		},
-	}
+		}
 
 	app.Before = func(c *cli.Context) error {
 		absPath, err := filepath.Abs(c.String("config"))
@@ -344,26 +316,10 @@ func daemon(c *cli.Context) error {
 
 	state := mapstate.NewMapState()
 
-	r, err := raft.ExistingStateReader(consensusCfg) // Note direct dependence on raft here
-	if err == nil { //err != nil we assume no snapshots and skip check
-		valid := state.VersionOk(r)
-		if !valid {
-			logger.Error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-                        logger.Error("Raft state is in a non-supported version")
-			err = state.Restore(r)
-			if err == nil {
-				err = ipfscluster.BackupState(clusterCfg.BaseDir, *state)
-			}
-			if err == nil {
-				logger.Error("An updated backup of this state has been saved")
-				logger.Error("to .ipfs-cluster/backups.  To setup state for use")
-				logger.Error("run ipfs-cluster-service migration on the latest backup")
-			}
-                        logger.Error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-
-			return errors.New("unsupported state version")
-		}
+	if needsUpdate(consensusCfg) {
+		return errors.New("unsupported state version")
 	}
+	
 	tracker := maptracker.NewMapPinTracker(clusterCfg.ID)
 	mon, err := basic.NewMonitor(monCfg)
 	checkErr("creating Monitor component", err)
@@ -400,17 +356,6 @@ func daemon(c *cli.Context) error {
 	// wait for configuration to be saved
 	cfg.Shutdown()
 	return nil
-}
-
-func cleanupRaft(raftDataDir string) error {
-	raftDB := filepath.Join(raftDataDir, "raft.db")
-	snapShotDir := filepath.Join(raftDataDir, "snapshots")
-	err := os.Remove(raftDB)
-	if err != nil {
-		return err
-	}
-	err = os.RemoveAll(snapShotDir)
-	return err
 }
 
 var facilities = []string{

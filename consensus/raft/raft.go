@@ -9,8 +9,6 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
-	"sort"
-	"strings"
 	"time"
 
 	hraft "github.com/hashicorp/raft"
@@ -30,10 +28,6 @@ var errBadRaftState = errors.New("cluster peers do not match raft peers")
 // ErrWaitingForSelf is returned when we are waiting for ourselves to depart
 // the peer set, which won't happen
 var errWaitingForSelf = errors.New("waiting for ourselves to depart")
-
-// ErrOutdatedState is returned when an older versioned state format is loaded
-// from existing raft state
-var errOutdatedState = errors.New("unsupported state version")
 
 // RaftMaxSnapshots indicates how many snapshots to keep in the consensus data
 // folder.
@@ -63,13 +57,10 @@ type raftWrapper struct {
 	logStore      hraft.LogStore
 	stableStore   hraft.StableStore
 	boltdb        *raftboltdb.BoltStore
-
-	HadState      bool
 }
 
 // newRaft launches a go-libp2p-raft consensus peer.
-func newRaftWrapper(peers []peer.ID, host host.Host, cfg *Config, consensus *p2praft.Consensus) (*raftWrapper, error) {
-	fsm := consensus.FSM()
+func newRaftWrapper(peers []peer.ID, host host.Host, cfg *Config, fsm hraft.FSM) (*raftWrapper, error) {
 	// Set correct LocalID
 	cfg.RaftConfig.LocalID = hraft.ServerID(peer.IDB58Encode(host.ID()))
 
@@ -197,10 +188,6 @@ func makeDataFolder(baseDir, folder string) (string, error) {
 		return "", err
 	}
 	return folder, nil
-}
-
-func MakeServerConf(peers []peer.ID) hraft.Configuration {
-	return makeServerConf(peers)
 }
 
 // create Raft servers configuration
@@ -448,70 +435,34 @@ func (rw *raftWrapper) Peers() ([]string, error) {
 	return ids, nil
 }
 
-// Used to sort raftsnapshot filenames to find most recent
-type byRaftSnapFilename []os.FileInfo
-
-// byRaftSnapFilename Implements the sort interface 
-func (nf byRaftSnapFilename) Len() int {return len(nf)}
-func (nf byRaftSnapFilename) Swap(i, j int) {nf[i], nf[j] = nf[j], nf[i]}
-func (nf byRaftSnapFilename) Less(i, j int) bool {
-	pathA := nf[i].Name()
-	pathB := nf[j].Name()
-
-	// Take the timestamp from the file name to determine order
-	// For now assuming 3 substrings means snap file
-	splitA := strings.Split(pathA, "-")
-	splitB := strings.Split(pathB, "-")
-
-	if len(splitA) == 3 && len(splitB) != 3 {
-                // Raftsnapshots come first
-		return true
-	}
-
-	if len(splitB) == 3 && len(splitA) != 3 {
-		return false
-	}
-	
-	if len(splitB) != 3 && len(splitA) != 3 {
-		return pathA < pathB
-	}
-
-	// Both are raft snapshot files 
-	// The most recent snapshot belongs at the front of the slice
-	return splitA[2] > splitB[2]
-}
-
-//ExistingStateReader does a best effort search for existing raft state files
-//and returns the bytes of the latest raft snapshot
+// LastSnapshot does a best effort search for existing raft state files
+// and returns a reader to the bytes of the latest raft snapshot
 func ExistingStateReader(cfg *Config) (io.Reader, error){
-	snapPath := "snapshots"
-	stateFilePath := "state.bin"
-
-	if cfg.BaseDir == "" || cfg.DataFolder == "" {
-		return nil, errors.New("Data location not specified in cfg")
+	// Read most recent snapshot
+	snapShotDir := filepath.Join(cfg.BaseDir, cfg.DataFolder)
+	store, err := hraft.NewFileSnapshotStore(snapShotDir, RaftMaxSnapshots, nil)
+	if err != nil {
+		return nil, err
 	}
-	snapShotDir := filepath.Join(cfg.BaseDir, cfg.DataFolder, snapPath)
-	
-	// take latest chronological file in the snapshot directory
-	snapFiles, err := ioutil.ReadDir(snapShotDir)
-	if len(snapFiles) == 0 {
-		return nil, errors.New("No snapshots saved")
+	snapMetas, err := store.List()
+	if err != nil {
+		return nil, err
 	}
-	sort.Sort(byRaftSnapFilename(snapFiles))
-	splitName := strings.Split(snapFiles[0].Name(), "-")
-	if len(splitName) != 3 {
-		return nil, errors.New("No snapshots saved")
+	if len(snapMetas) == 0 {
+		return nil, errors.New("No snapshot files found")
 	}
-
-	// look for state file in latest snapshot
-	snapShotStateFile := filepath.Join(snapShotDir, snapFiles[0].Name(), stateFilePath)
-	rawBytes, err := ioutil.ReadFile(snapShotStateFile)
+	_, recentSnapReader, err := store.Open(snapMetas[0].ID)
+	if err != nil {
+		return err
+	}
+	rawBytes, err := ioutil.ReadAll(recentSnapReader)
 	if err != nil {
 		return nil, err
 	}
 
+	// Package state from snapshot as json in a reader
 	var state interface {}
-	err = decodeState(rawBytes, &state)
+	err = decodeState(rawBytes, &state) // Update when libp2p-raft is ready!!
 	if err != nil {
 		return nil, err
 	}
@@ -523,9 +474,9 @@ func ExistingStateReader(cfg *Config) (io.Reader, error){
 	return r, nil
 }
 
-//Reset saves a raft snapshot containing newState to be loaded on restart.
-//Only call when Raft is shutdown.
-func Reset(newState state.State, cfg *Config, raftDataPath string, peers []peer.ID) error{
+// Reset saves a raft snapshot containing newState to be loaded on restart.
+// Only call when Raft is shutdown.
+func SnapshotReset(newState state.State, cfg *Config, raftDataPath string, peers []peer.ID) error{
 	err := cleanupRaft(raftDataPath)
 	if err != nil {
 		return err
@@ -539,15 +490,15 @@ func Reset(newState state.State, cfg *Config, raftDataPath string, peers []peer.
 	_, dummyTransport := hraft.NewInmemTransport(serverAddr)
 	var raftSnapVersion hraft.SnapshotVersion
 	raftSnapVersion = 1         // As of v1.0.0 this is always 1                                     
-	raftIndex       := uint64(1) // We reset history to the beginning                                                    
+	raftIndex       := uint64(1) // We reset history to the beginning
 	raftTerm        := uint64(1) // We reset history to the beginning
 	configIndex     := uint64(1) // We reset history to the beginning
-	srvCfg := MakeServerConf(peers)
+	srvCfg := makeServerConf(peers)
 	sink, err := snapshotStore.Create(raftSnapVersion, raftIndex, raftTerm, srvCfg, configIndex, dummyTransport)
 	if err != nil {
 		return err
 	}
-	newStateBytes, err := encodeState(newState)
+	newStateBytes, err := encodeState(newState) //Update when libp2p-raft is ready!
 	_, err = sink.Write(newStateBytes)
 	if err != nil {
 		return err
@@ -560,16 +511,10 @@ func Reset(newState state.State, cfg *Config, raftDataPath string, peers []peer.
 }
 
 func cleanupRaft(raftDataDir string) error {
-        raftDB := filepath.Join(raftDataDir, "raft.db")
-        snapShotDir := filepath.Join(raftDataDir, "snapshots")
-        err := os.Remove(raftDB)
-        if err != nil {
-		return err
-        }
-        err = os.RemoveAll(snapShotDir)
-        return err
+	return os.RemoveAll(raftDataDir) 
 }
 
+// Remove when libp2p-raft is ready
 func encodeState(state interface{}) ([]byte, error) {
         buf := new(bytes.Buffer)
         enc := msgpack.Multicodec(msgpack.DefaultMsgpackHandle()).Encoder(buf)
@@ -579,6 +524,7 @@ func encodeState(state interface{}) ([]byte, error) {
         return buf.Bytes(), nil
 }
 
+// Remove when libp2p-raft is ready
 func decodeState(bs []byte, state *interface{}) error {
         buf := bytes.NewBuffer(bs)
         dec := msgpack.Multicodec(msgpack.DefaultMsgpackHandle()).Decoder(buf)
@@ -591,7 +537,7 @@ func decodeState(bs []byte, state *interface{}) error {
 
 // only call when Raft is shutdown
 func (rw *raftWrapper) Clean() error {
-	return os.RemoveAll(rw.dataFolder)
+	return cleanupRaft(rw.dataFolder)
 }
 
 func find(s []string, elem string) bool {

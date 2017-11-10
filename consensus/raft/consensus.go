@@ -59,7 +59,7 @@ func NewConsensus(clusterPeers []peer.ID, host host.Host, cfg *Config, state sta
 
 	logger.Infof("starting Consensus and waiting for a leader...")
 	consensus := libp2praft.NewOpLog(state, baseOp)
-	raft, err := newRaftWrapper(clusterPeers, host, cfg, consensus)
+	raft, err := newRaftWrapper(clusterPeers, host, cfg, consensus.FSM())
 	if err != nil {
 		logger.Error("error creating raft: ", err)
 		return nil, err

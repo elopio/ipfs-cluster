@@ -162,14 +162,15 @@ func containsPeer(list []peer.ID, peer peer.ID) bool {
 	return false
 }
 
-func BackupState(baseDir string, state state.State) error {
-	if baseDir == "" {
+func BackupState(cfg *Config, state state.State) error {
+	
+	if cfg.BaseDir == "" {
 		msg := "ClusterConfig BaseDir unset. Skipping backup"
 		logger.Warning(msg)
 		return errors.New(msg)
 	}
 
-	folder := filepath.Join(baseDir, "backups")
+	folder := filepath.Join(cfg.BaseDir, "backups")
 	err := os.MkdirAll(folder, 0700)
 	if err != nil {
 		logger.Error(err)
