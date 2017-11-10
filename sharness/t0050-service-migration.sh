@@ -19,7 +19,7 @@ test_expect_success IPFS,CLUSTER "cluster-service state preserved by migration" 
     echo "successful state upgrade" &&
     ipfs-cluster-service --config "test-config" >"$IPFS_OUTPUT" 2>&1 &
     export CLUSTER_D_PID=$! &&
-    sleep 30 &&
+    sleep 50 &&
     ipfs-cluster-ctl pin ls "$cid" | grep -q "$cid" &&
     ipfs-cluster-ctl status "$cid" | grep -q -i "PINNED"
 '
