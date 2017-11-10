@@ -140,7 +140,6 @@ func newRaftWrapper(peers []peer.ID, host host.Host, cfg *Config, fsm hraft.FSM)
 		logStore:      log,
 		stableStore:   stable,
 		boltdb:        store,
-		HadState:      hasState,
 	}
 
 	// Handle existing, different configuration
@@ -453,7 +452,7 @@ func ExistingStateReader(cfg *Config) (io.Reader, error){
 	}
 	_, recentSnapReader, err := store.Open(snapMetas[0].ID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	rawBytes, err := ioutil.ReadAll(recentSnapReader)
 	if err != nil {

@@ -28,5 +28,5 @@ type State interface {
 	// Restore restores a snapshot from a reader
 	Restore(r io.Reader) error
 	// Check whether version of state in reader has correct version
-	VersionOk(r io.Reader) bool
+	GetVersion(r io.Reader) (int, error)
 }

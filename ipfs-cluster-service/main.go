@@ -15,7 +15,6 @@ import (
 	logging "github.com/ipfs/go-log"
 	ma "github.com/multiformats/go-multiaddr"
 	"github.com/urfave/cli"
-	"github.com/libp2p/go-libp2p-peer"
 
 	ipfscluster "github.com/ipfs/ipfs-cluster"
 	"github.com/ipfs/ipfs-cluster/allocator/ascendalloc"
@@ -256,7 +255,8 @@ removal, upgrade state using this command, and restart every peer.
 					},
 				},
 			},
-		}
+		},
+	}
 
 	app.Before = func(c *cli.Context) error {
 		absPath, err := filepath.Abs(c.String("config"))
@@ -316,7 +316,7 @@ func daemon(c *cli.Context) error {
 
 	state := mapstate.NewMapState()
 
-	if needsUpdate(consensusCfg) {
+	if needsUpdate(clusterCfg, consensusCfg) {
 		return errors.New("unsupported state version")
 	}
 	

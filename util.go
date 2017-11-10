@@ -163,7 +163,6 @@ func containsPeer(list []peer.ID, peer peer.ID) bool {
 }
 
 func BackupState(cfg *Config, state state.State) error {
-	
 	if cfg.BaseDir == "" {
 		msg := "ClusterConfig BaseDir unset. Skipping backup"
 		logger.Warning(msg)

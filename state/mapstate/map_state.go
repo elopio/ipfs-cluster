@@ -115,7 +115,7 @@ func (st *MapState) Restore(r io.Reader) error {
 
 // Version takes a reader pointing to a reader of json
 // encoded state and returns the version
-func (st *MapState) Version(r io.Reader) (int, error) {
+func (st *MapState) GetVersion(r io.Reader) (int, error) {
 	snap, err := ioutil.ReadAll(r)
 	if err != nil {
 		return -1, err
