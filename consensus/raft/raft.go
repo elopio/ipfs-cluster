@@ -16,7 +16,7 @@ import (
 	host "github.com/libp2p/go-libp2p-host"
 	peer "github.com/libp2p/go-libp2p-peer"
 	p2praft "github.com/libp2p/go-libp2p-raft"
-	msgpack "github.com/multiformats/go-multicodec/msgpack"
+	p2pconsensus "github.com/libp2p/go-libp2p-consensus"
 
 	"github.com/ipfs/ipfs-cluster/state"
 )
@@ -460,8 +460,8 @@ func ExistingStateReader(cfg *Config) (io.Reader, error){
 	}
 
 	// Package state from snapshot as json in a reader
-	var state interface {}
-	err = decodeState(rawBytes, &state) // Update when libp2p-raft is ready!!
+	var state p2pconsensus.State
+	err = p2praft.DecodeState(rawBytes, &state)
 	if err != nil {
 		return nil, err
 	}
@@ -497,7 +497,7 @@ func SnapshotReset(newState state.State, cfg *Config, raftDataPath string, peers
 	if err != nil {
 		return err
 	}
-	newStateBytes, err := encodeState(newState) //Update when libp2p-raft is ready!
+	newStateBytes, err := p2praft.EncodeState(newState)
 	_, err = sink.Write(newStateBytes)
 	if err != nil {
 		return err
@@ -512,27 +512,6 @@ func SnapshotReset(newState state.State, cfg *Config, raftDataPath string, peers
 func cleanupRaft(raftDataDir string) error {
 	return os.RemoveAll(raftDataDir) 
 }
-
-// Remove when libp2p-raft is ready
-func encodeState(state interface{}) ([]byte, error) {
-        buf := new(bytes.Buffer)
-        enc := msgpack.Multicodec(msgpack.DefaultMsgpackHandle()).Encoder(buf)
-        if err := enc.Encode(state); err != nil {
-                return nil, err
-        }
-        return buf.Bytes(), nil
-}
-
-// Remove when libp2p-raft is ready
-func decodeState(bs []byte, state *interface{}) error {
-        buf := bytes.NewBuffer(bs)
-        dec := msgpack.Multicodec(msgpack.DefaultMsgpackHandle()).Decoder(buf)
-        if err := dec.Decode(state); err != nil {
-                return err
-        }
-        return nil
-}
-
 
 // only call when Raft is shutdown
 func (rw *raftWrapper) Clean() error {
