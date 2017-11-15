@@ -556,7 +556,15 @@ func SnapshotMigrate(cfg *Config, newState state.State) error{
 	return nil
 }
 
-func cleanupRaft(raftDataDir string) error {
+func cleanupRaft(dataFolder string) error {
+	dbh := newDataBackupHelper(dataFolder)
+	err := dbh.makeBackup()
+	if err != nil {
+		logger.Warning(err)
+		logger.Warning("the state could not be cleaned properly")
+		logger.Warning("manual intervention may be needed before starting cluster again")
+	}
+	return nil
 	return os.RemoveAll(raftDataDir) 
 }
 

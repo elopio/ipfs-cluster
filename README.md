@@ -56,7 +56,7 @@ You can download pre-compiled binaries for your platform from the [dist.ipfs.io]
 * [Builds for `ipfs-cluster-service`](https://dist.ipfs.io/#ipfs-cluster-service)
 * [Builds for `ipfs-cluster-ctl`](https://dist.ipfs.io/#ipfs-cluster-ctl)
 
-Note that since IPFS Cluster is evolving fast, the these builds may not contain the latest features/bugfixes as they are updated only bi-weekly.
+Note that since IPFS Cluster is evolving fast, these builds may not contain the latest features/bugfixes. Builds are updated monthly on a best-effort basis.
 
 ### Docker
 
@@ -69,6 +69,16 @@ To build the container manually you can:
 `$ docker build . -t ipfs-cluster`
 
 You can mount your local ipfs-cluster configuration and data folder by passing `-v /data/ipfs-cluster your-local-ipfs-cluster-folder` to Docker.
+
+### Install from the snap store
+
+In any of the [supported Linux distros](https://snapcraft.io/docs/core/install):
+
+```bash
+sudo snap install ipfs-cluster --edge
+```
+
+(Note that this is an experimental and unstable release, at the moment)
 
 ### Install from sources
 
@@ -87,6 +97,8 @@ This will install `ipfs-cluster-service` and `ipfs-cluster-ctl` in your `$GOPATH
 ![ipfs-cluster-usage](https://ipfs.io/ipfs/QmVMKD39fYJG9QGyyFkGN3QuZRg3EfuuxqkG1scCo9ZUHp/cluster-mgmt.gif)
 
 ### Quickstart
+
+** Remember: Start your ipfs daemon before running ipfs-cluster **
 
 **`ipfs-cluster-service`** runs an ipfs-cluster peer:
 
