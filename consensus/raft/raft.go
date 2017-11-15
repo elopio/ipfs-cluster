@@ -434,72 +434,119 @@ func (rw *raftWrapper) Peers() ([]string, error) {
 	return ids, nil
 }
 
-// LastSnapshot does a best effort search for existing raft state files
-// and returns a reader to the bytes of the latest raft snapshot
-func ExistingStateReader(cfg *Config) (io.Reader, error){
-	// Read most recent snapshot
-	snapShotDir := filepath.Join(cfg.BaseDir, cfg.DataFolder)
-	store, err := hraft.NewFileSnapshotStore(snapShotDir, RaftMaxSnapshots, nil)
+// latestSnapshot looks for the most recent raft snapshot stored at the
+// provided basedir.  It returns a boolean indicating if any snapshot is
+// readable, the snapshot's metadata, and a reader to the snapshot's bytes
+func latestSnapshot(raftDataFolder string) (boolean, hraft.SnapshotMeta, io.ReadCloser, error) {
+	store, err := hraft.NewFileSnapshotStore(raftDataFolder, RaftMaxSnapshots, nil)
 	if err != nil {
-		return nil, err
+		return false, nil, nil, err
 	}
-	snapMetas, err := store.List()
+	snapMetas, err := store,List()
 	if err != nil {
-		return nil, err
+		return false, nil, nil, err
 	}
-	if len(snapMetas) == 0 {
-		return nil, errors.New("No snapshot files found")
+	if len(snapMetas) == 0 { // no error if snapshot isn't found
+		return false, nil, nil, nil
 	}
-	_, recentSnapReader, err := store.Open(snapMetas[0].ID)
+	meta, r, err := store.Open(snapMetas[0].ID)
 	if err != nil {
-		return nil, err
+		return false, nil, nil, err
 	}
-	rawBytes, err := ioutil.ReadAll(recentSnapReader)
-	if err != nil {
-		return nil, err
-	}
-
-	// Package state from snapshot as json in a reader
-	var state p2pconsensus.State
-	err = p2praft.DecodeState(rawBytes, &state)
-	if err != nil {
-		return nil, err
-	}
-	stateBytes, err := json.Marshal(state)
-	if err != nil {
-		return nil, err
-	}
-	r := bytes.NewReader(stateBytes)
-	return r, nil
+	return true, meta, r, nil
 }
 
-// Reset saves a raft snapshot containing newState to be loaded on restart.
+// LastState does a best effort search for existing raft state files
+// and returns a reader to the bytes of the latest raft snapshot
+func LastState(cfg *Config, state *state.State) (boolean, error){
+	// Read most recent snapshot
+	dataFolder, err := makeDataFolder(cfg.BaseDir, cfg.DataFolder)
+	if err != nil {
+		return false, err
+	}
+	found, _, r, err := latestSnapshot(dataFolder)
+	if err != nil {
+		return false, err
+	}
+	if !found {
+		return false, nil
+	}
+
+	// !!!!!!Needs to be redone so that mapstate does the marshaling of bytes to state here!!!!!!!!!
+
+	rawBytes, err := ioutil.ReadAll(r)
+	if err != nil {
+		return true, err
+	}
+	err = state.Unmarshal(rawBytes)
+	if err != nil {
+		return true, err
+	}
+	return true, nil
+}
+
+// SnapshotReset saves a raft snapshot containing a migrated version of the
+// latest snapshot's state.  If no state yet exists there is nothing to reset
+// and it returns an error.
 // Only call when Raft is shutdown.
-func SnapshotReset(newState state.State, cfg *Config, raftDataPath string, peers []peer.ID) error{
-	err := cleanupRaft(raftDataPath)
+func SnapshotMigrate(cfg *Config, newState state.State) error{
+	dataFolder, err := makeDataFolder(cfg.BaseDir, cfg.DataFolder)
 	if err != nil {
 		return err
 	}
-	snapshotStore, err := hraft.NewFileSnapshotStoreWithLogger(raftDataPath, RaftMaxSnapshots, nil)
+	// Get info from latest snapshot
+	found, meta, r, err := latestSnapshot(dataFolder)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return errors.New("No existing snapshot to migrate from")
+	}
+
+	// migrate state 
+	oldStateBytes, err := r.ReadAll()
+	if err != nil {
+		return err
+	}
+	
+	p2praft.DecodeSnapshot(oldStateBytes, newState)
+	if newState.GetVersion() == newState.Version {
+		raftStdLogger.log("migrating from an already up to date version")
+	} else {
+		raftStdLogger.log("migrating state from version %d to version %d", newState.GetVersion, newState.Version)
+	}
+	err = newState.Restore() // if same version then this is a nop
+	if err != nil {
+		return err
+	}
+	newStateBytes, err := p2praft.EncodeSnapshot(newState)
 	if err != nil {
 		return err
 	}
 
-	serverAddr := hraft.ServerAddress(peer.IDB58Encode(peers[len(peers) -1]))
-	_, dummyTransport := hraft.NewInmemTransport(serverAddr)
+	// make a new raft snapshot
 	var raftSnapVersion hraft.SnapshotVersion
-	raftSnapVersion = 1         // As of v1.0.0 this is always 1                                     
-	raftIndex       := uint64(1) // We reset history to the beginning
-	raftTerm        := uint64(1) // We reset history to the beginning
-	configIndex     := uint64(1) // We reset history to the beginning
-	srvCfg := makeServerConf(peers)
+	raftIndex       := meta.Index
+	raftTerm        := meta.Term
+	srvCfg          := meta.Configuration
+	raftSnapVersion  = 1 // As of hraft v1.0.0 this is always 1                                     
+	configIndex     := uint64(1)
+	cleanupRaft(dataFolder)
+	
+	snapshotStore, err := hraft.NewFileSnapshotStoreWithLogger(dataFolder, RaftMaxSnapshots, raftStdLogger)
+	if err != nil {
+		return err
+	}
+	_, dummyTransport := hraft.NewInmemTransport("")
+
 	sink, err := snapshotStore.Create(raftSnapVersion, raftIndex, raftTerm, srvCfg, configIndex, dummyTransport)
 	if err != nil {
 		return err
 	}
-	newStateBytes, err := p2praft.EncodeState(newState)
+	
 	_, err = sink.Write(newStateBytes)
 	if err != nil {
+		sink.Cancel()
 		return err
 	}
 	err = sink.Close()

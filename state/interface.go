@@ -25,8 +25,12 @@ type State interface {
 	Get(*cid.Cid) api.Pin
 	// Snapshot writes a snapshot of the state to a writer
 	Snapshot(w io.Writer) error
-	// Restore restores a snapshot from a reader
-	Restore(r io.Reader) error
+	// Restore restores an outdated state to the current version
+	Restore() error
 	// Check whether version of state in reader has correct version
 	GetVersion(r io.Reader) (int, error)
+	// Marshal serializes the state to a byte slice
+	Marshal() ([]byte, error)
+	// Unmarshal deserializes the state from marshaled bytes
+	Unmarshal([]byte) error
 }

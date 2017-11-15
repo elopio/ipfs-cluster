@@ -241,15 +241,14 @@ configuration.
 					Usage:  "upgrade the IPFS Cluster state to the current version",
 					Description: `
 
-This command replaces the internal state of the ipfs-cluster node with the state 
-specified in a backup file. The state format is migrated from the version 
-of the backup file to the version supported by the current cluster version. 
+This command upgrades the internal state of the ipfs-cluster node 
+specified in the latest raft snapshot. The state format is migrated from the 
+version of the snapshot to the version supported by the current cluster version. 
 To succesfully run an upgrade of an entire cluster, shut down each peer without
 removal, upgrade state using this command, and restart every peer.
 `,
-					ArgsUsage: "backup-file-path [raft-data-dir]",
 					Action: func(c *cli.Context) error {
-						err := upgrade(c)
+						err := upgrade()
 						checkErr("upgrading state", err)
 						return nil
 					},
@@ -316,9 +315,8 @@ func daemon(c *cli.Context) error {
 
 	state := mapstate.NewMapState()
 
-	if needsUpdate(clusterCfg, consensusCfg) {
-		return errors.New("unsupported state version")
-	}
+	err = validateVersion(clusterCfg, consensusCfg)
+	checkErr("validating version", err)
 	
 	tracker := maptracker.NewMapPinTracker(clusterCfg.ID)
 	mon, err := basic.NewMonitor(monCfg)

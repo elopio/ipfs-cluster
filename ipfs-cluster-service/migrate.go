@@ -16,49 +16,18 @@ import (
 )
 
 
-func upgrade(c *cli.Context) error {
-	if c.NArg() < 1 || c.NArg() > 2 {
-		return fmt.Errorf("Usage: <BACKUP-FILE-PATH> [RAFT-DATA-DIR]")
-	}
+func upgrade() error {
 	//Load configs                                                             
 	cfg, clusterCfg, _, _, consensusCfg, _, _, _ := makeConfigs()
 	err := cfg.LoadJSONFromFile(configPath)
 	if err != nil {
 		return err
 	}
-	backupFilePath := c.Args().First()
-	var raftDataPath string
-	if c.NArg() == 1 {
-		raftDataPath = consensusCfg.DataFolder
-	} else {
-		raftDataPath = c.Args().Get(1)
-	}
 
-	//Migrate backup to new state                                                              
-	backup, err := os.Open(backupFilePath)
-	if err != nil {
-		return err
-	}
-
-	defer backup.Close()
-	r := bufio.NewReader(backup)
 	newState := mapstate.NewMapState()
-	err = newState.Restore(r)
-	if err != nil {
-		return err
-	}
-	//Record peers of cluster                                                                  
-	var peers []peer.ID
-	for _, m := range clusterCfg.Peers {
-		pid, _, err := ipfscluster.MultiaddrSplit(m)
-		if err != nil {
-			return err
-		}
-		peers = append(peers, pid)
-	}
-	peers = append(peers, clusterCfg.ID)
+
 	//Reset raft state to a snapshot of the new migrated state                                 
-	err = raft.SnapshotReset(newState, consensusCfg, raftDataPath, peers)
+	err = raft.SnapshotMigrate(consensusCfg, newState)
 	if err != nil {
 		return err
 	}
@@ -66,26 +35,25 @@ func upgrade(c *cli.Context) error {
 }
 
 
-func needsUpdate(cfg *ipfscluster.Config, cCfg *raft.Config) bool {
+func validateVersion(cfg *ipfscluster.Config, cCfg *raft.Config) error {
 	state := mapstate.NewMapState()
-	r, err := raft.ExistingStateReader(cCfg) // Note direct dependence on raft here
-	if err == nil { //err != nil no snapshots so skip check
-		storedV, err := state.GetVersion(r)
-		if storedV != state.Version || err != nil {
-			logger.Error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-                        logger.Error("Raft state is in a non-supported version")
-			err = state.Restore(r)
-			if err == nil {
-				err = ipfscluster.BackupState(cfg, state)
-				if err == nil {
-					logger.Error("An updated backup of this state has been saved")
-					logger.Error("to baseDir/backups.  To setup state for use")
-					logger.Error("run ipfs-cluster-service migration on the latest backup")
-				}
-				logger.Error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
-				return true
-			}
+	validSnap, err := raft.LastState(cCfg, state) // Note direct dependence on raft here
+	if !validSnap && err != nil {
+		logger.Error("Error before reading last snapshot.")
+		return err
+	} else if validSnap && err != nil {
+		logger.Error("Error after reading last snapshot. Snapshot potentially corrupt.")
+		return err
+	} else if validSnap && err == nil {
+		if state.GetVersion() != state.Version {
+			logger.Error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+			logger.Error("Out of date ipfs-cluster state is saved.")
+			logger.Error("To migrate to the new version, run ipfs-cluster-service state upgrade.")
+			logger.Error("To launch a node without this state, rename the consensus data directory.")
+			logger.Error("Hint, the default is .ipfs-cluster/ipfs-cluster-data.")
+			logger.Error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+			return errors.New("Outdated state version stored")
 		}
-	}
-	return false
+	} // !validSnap && err != nil // no existing state, no check needed
+	return nil
 }
