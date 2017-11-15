@@ -27,8 +27,10 @@ type State interface {
 	Snapshot(w io.Writer) error
 	// Restore restores an outdated state to the current version
 	Restore() error
-	// Check whether version of state in reader has correct version
-	GetVersion(r io.Reader) (int, error)
+	// Return the version of this state
+	GetVersion() int
+	// Return the latest version that this state can implement
+	GetLatestVersion() int
 	// Marshal serializes the state to a byte slice
 	Marshal() ([]byte, error)
 	// Unmarshal deserializes the state from marshaled bytes

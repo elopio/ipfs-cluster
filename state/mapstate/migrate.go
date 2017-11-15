@@ -1,6 +1,7 @@
 package mapstate
 
 import (
+	"bytes"
 	"errors"
 
 	msgpack "github.com/multiformats/go-multicodec/msgpack"
@@ -17,7 +18,7 @@ func (st *MapState) migrateFrom(version int, snap []byte) error {
 	switch version {
 	case 1:
 		var mstv1 mapStateV1
-		buf := bytes.NewBuffer(bs)
+		buf := bytes.NewBuffer(snap)
 		dec := msgpack.Multicodec(msgpack.DefaultMsgpackHandle()).Decoder(buf)
 		if err := dec.Decode(&mstv1); err != nil {
 			return err

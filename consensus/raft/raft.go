@@ -1,9 +1,7 @@
 package raft
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"io/ioutil"
@@ -16,7 +14,6 @@ import (
 	host "github.com/libp2p/go-libp2p-host"
 	peer "github.com/libp2p/go-libp2p-peer"
 	p2praft "github.com/libp2p/go-libp2p-raft"
-	p2pconsensus "github.com/libp2p/go-libp2p-consensus"
 
 	"github.com/ipfs/ipfs-cluster/state"
 )
@@ -437,12 +434,12 @@ func (rw *raftWrapper) Peers() ([]string, error) {
 // latestSnapshot looks for the most recent raft snapshot stored at the
 // provided basedir.  It returns a boolean indicating if any snapshot is
 // readable, the snapshot's metadata, and a reader to the snapshot's bytes
-func latestSnapshot(raftDataFolder string) (boolean, hraft.SnapshotMeta, io.ReadCloser, error) {
+func latestSnapshot(raftDataFolder string) (bool, *hraft.SnapshotMeta, io.ReadCloser, error) {
 	store, err := hraft.NewFileSnapshotStore(raftDataFolder, RaftMaxSnapshots, nil)
 	if err != nil {
 		return false, nil, nil, err
 	}
-	snapMetas, err := store,List()
+	snapMetas, err := store.List()
 	if err != nil {
 		return false, nil, nil, err
 	}
@@ -458,7 +455,7 @@ func latestSnapshot(raftDataFolder string) (boolean, hraft.SnapshotMeta, io.Read
 
 // LastState does a best effort search for existing raft state files
 // and returns a reader to the bytes of the latest raft snapshot
-func LastState(cfg *Config, state *state.State) (boolean, error){
+func LastState(cfg *Config, state state.State) (bool, error){
 	// Read most recent snapshot
 	dataFolder, err := makeDataFolder(cfg.BaseDir, cfg.DataFolder)
 	if err != nil {
@@ -504,16 +501,17 @@ func SnapshotMigrate(cfg *Config, newState state.State) error{
 	}
 
 	// migrate state 
-	oldStateBytes, err := r.ReadAll()
+	oldStateBytes, err := ioutil.ReadAll(r)
 	if err != nil {
 		return err
 	}
 	
 	p2praft.DecodeSnapshot(oldStateBytes, newState)
-	if newState.GetVersion() == newState.Version {
-		raftStdLogger.log("migrating from an already up to date version")
+	v := newState.GetLatestVersion()
+	if newState.GetVersion() == v {
+		logger.Info("migrating from an already up to date version")
 	} else {
-		raftStdLogger.log("migrating state from version %d to version %d", newState.GetVersion, newState.Version)
+		logger.Infof("migrating state from version %d to version %d", newState.GetVersion, v)
 	}
 	err = newState.Restore() // if same version then this is a nop
 	if err != nil {
@@ -533,7 +531,7 @@ func SnapshotMigrate(cfg *Config, newState state.State) error{
 	configIndex     := uint64(1)
 	cleanupRaft(dataFolder)
 	
-	snapshotStore, err := hraft.NewFileSnapshotStoreWithLogger(dataFolder, RaftMaxSnapshots, raftStdLogger)
+	snapshotStore, err := hraft.NewFileSnapshotStoreWithLogger(dataFolder, RaftMaxSnapshots, nil)
 	if err != nil {
 		return err
 	}
@@ -565,7 +563,6 @@ func cleanupRaft(dataFolder string) error {
 		logger.Warning("manual intervention may be needed before starting cluster again")
 	}
 	return nil
-	return os.RemoveAll(raftDataDir) 
 }
 
 // only call when Raft is shutdown

@@ -1,14 +1,7 @@
 package main
 
 import (
-	"bufio"
-
-	"fmt"
-	"os"
-
-	"github.com/urfave/cli"
-
-	peer "github.com/libp2p/go-libp2p-peer"
+	"errors"
 	
 	ipfscluster "github.com/ipfs/ipfs-cluster"
 	"github.com/ipfs/ipfs-cluster/state/mapstate"
@@ -18,7 +11,7 @@ import (
 
 func upgrade() error {
 	//Load configs                                                             
-	cfg, clusterCfg, _, _, consensusCfg, _, _, _ := makeConfigs()
+	cfg, _, _, _, consensusCfg, _, _, _ := makeConfigs()
 	err := cfg.LoadJSONFromFile(configPath)
 	if err != nil {
 		return err
@@ -45,7 +38,7 @@ func validateVersion(cfg *ipfscluster.Config, cCfg *raft.Config) error {
 		logger.Error("Error after reading last snapshot. Snapshot potentially corrupt.")
 		return err
 	} else if validSnap && err == nil {
-		if state.GetVersion() != state.Version {
+		if state.GetVersion() != state.GetLatestVersion() {
 			logger.Error("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
 			logger.Error("Out of date ipfs-cluster state is saved.")
 			logger.Error("To migrate to the new version, run ipfs-cluster-service state upgrade.")

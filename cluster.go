@@ -3,9 +3,6 @@ package ipfscluster
 import (
 	"context"
 	"errors"
-	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -530,13 +527,9 @@ func (c *Cluster) Shutdown() error {
 
 	// Do not save anything if we were not ready
 	if c.readyB {
-<<<<<<< HEAD
 		// peers are saved usually on addPeer/rmPeer
 		// c.peerManager.savePeers()
 		BackupState(c.config, c.state)
-=======
-		c.backupState()
->>>>>>> master
 	}
 
 	// We left the cluster or were removed. Destroy the Raft state.

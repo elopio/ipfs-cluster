@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
-	"io/ioutil"
 	"sync"
 
 	msgpack "github.com/multiformats/go-multicodec/msgpack"
@@ -24,7 +23,7 @@ const Version = 2
 // using a Go map. It is thread safe. It implements the State interface.
 type MapState struct {
 	pinMux    sync.RWMutex
-	toRestore []bytes
+	toRestore []byte
 	PinMap    map[string]api.PinSerial
 	Version   int
 }
@@ -99,30 +98,26 @@ func (st *MapState) Snapshot(w io.Writer) error {
 // Restore restores a snapshot from the state's internal bytes. It should
 // migrate the format if it is not compatible with the current version.
 func (st *MapState) Restore() error {
-	return st.migrateFrom(st.Version, toRestore)
+	return st.migrateFrom(st.Version, st.toRestore)
 }
 
 
-// GetVersion takes a reader pointing to a reader of json
-// encoded state and returns the version
-func (st *MapState) GetVersion(r io.Reader) (int, error) {
-	snap, err := ioutil.ReadAll(r)
-	if err != nil {
-		return -1, err
-	}
-	var vonly struct{ Version int }
-        err = json.Unmarshal(snap, &vonly)
-        if err != nil {
-                return -1, err
-        }
-	return vonly.Version, nil
+// GetVersion returns the current version of this state object.
+// It is not necessarily up to date
+func (st *MapState) GetVersion() int {
+	return st.Version
+}
+
+// GetLatestVersion returns the most up to date version of state
+func (st *MapState) GetLatestVersion() int {
+	return Version
 }
 
 
 // Marshal encodes the state using msgpack
 func (st *MapState) Marshal() ([]byte, error) {
 	buf := new(bytes.Buffer)
-	dec := msgpack.Multicodec(msgpack.DefaultMsgpackHandle()).Decoder(buf)
+	enc := msgpack.Multicodec(msgpack.DefaultMsgpackHandle()).Encoder(buf)
 	if err := enc.Encode(st); err != nil {
 		return nil, err
 	}
@@ -134,13 +129,13 @@ func (st *MapState) Marshal() ([]byte, error) {
 // are stored within the state's internal reader, which can be migrated
 // to the current version in a later call to restore.  Note: Out of date
 // version is not an error
-func (st *MapState) Unmarshal() (bs []byte) error {
-	bsV = make([]byte, len(bs))
+func (st *MapState) Unmarshal(bs []byte) error {
+	bsV := make([]byte, len(bs))
 	copy(bsV, bs)
 	bufV := bytes.NewBuffer(bsV)
 	var vonly struct{ Version int }
 	decV := msgpack.Multicodec(msgpack.DefaultMsgpackHandle()).Decoder(bufV)
-	if err := dec.Decode(&vonly); err != nil {
+	if err := decV.Decode(&vonly); err != nil {
 		return err
 	}
 	if vonly.Version != Version { // snapshot is out of date
